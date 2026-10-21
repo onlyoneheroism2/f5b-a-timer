@@ -22,6 +22,7 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.RadioButton;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -260,18 +261,101 @@ public class MainActivity extends Activity {
 
     private void showModePicker() {
         if (running) return;
-        String[] choices = {"F5B A科目规则预设", "自定义分段方案"};
-        new AlertDialog.Builder(this)
-                .setTitle("选择计时模式")
-                .setSingleChoiceItems(choices, customMode ? 1 : 0, (dialog, which) -> {
-                    customMode = which == 1;
-                    getPreferences(0).edit().putBoolean(KEY_CUSTOM_MODE, customMode).apply();
-                    resetTimer();
-                    updateModeControls();
-                    dialog.dismiss();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.VERTICAL);
+        choices.setPadding(dp(14), dp(6), dp(14), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(choices);
+        AlertDialog picker = new AlertDialog.Builder(this)
+                .setTitle("选择计时方案")
+                .setView(scroll)
+                .setNegativeButton("关闭", null)
+                .create();
+
+        addModeChoice(choices, "F5B A 科目规则预设", !customMode, null, true, picker);
+        boolean currentIsSaved = false;
+        for (TimerPreset preset : presets) {
+            if (preset.name.equalsIgnoreCase(currentPresetName)) currentIsSaved = true;
+        }
+        if (!currentIsSaved) {
+            addModeChoice(choices, currentPresetName.isEmpty() ? "当前自定义方案" : "自定义 · " + currentPresetName,
+                    customMode, null, false, picker);
+        }
+        for (TimerPreset preset : new ArrayList<>(presets)) {
+            addModeChoice(choices, preset.name + "  ·  " + formatChineseTime(preset.totalSeconds),
+                    customMode && preset.name.equalsIgnoreCase(currentPresetName), preset, false, picker);
+        }
+
+        Button configure = makeButton("＋ 新建 / 编辑自定义方案", v -> {
+            picker.dismiss();
+            showPlanSettings();
+        });
+        LinearLayout.LayoutParams configureParams = new LinearLayout.LayoutParams(-1, dp(48));
+        configureParams.topMargin = dp(8);
+        choices.addView(configure, configureParams);
+        picker.show();
+    }
+
+    private void addModeChoice(LinearLayout parent, String label, boolean checked,
+                               TimerPreset preset, boolean f5b, AlertDialog picker) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(54));
+        parent.addView(row, rowParams);
+        RadioButton choice = new RadioButton(this);
+        choice.setText(label);
+        choice.setTextColor(INK);
+        choice.setTextSize(15);
+        choice.setChecked(checked);
+        row.addView(choice, new LinearLayout.LayoutParams(0, -1, 1f));
+        choice.setOnClickListener(v -> {
+            if (f5b) {
+                customMode = false;
+                getPreferences(0).edit().putBoolean(KEY_CUSTOM_MODE, false).apply();
+            } else if (preset != null) {
+                applyPreset(preset);
+            } else {
+                customMode = true;
+                persistActiveSettings();
+            }
+            resetTimer();
+            updateModeControls();
+            picker.dismiss();
+        });
+        if (preset != null) {
+            Button delete = makeButton("删除", v -> new AlertDialog.Builder(this)
+                    .setTitle("删除自定义方案")
+                    .setMessage("确定删除“" + preset.name + "”？此操作不可撤销。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (confirm, which) -> {
+                        presets.remove(preset);
+                        if (currentPresetName.equalsIgnoreCase(preset.name)) {
+                            currentPresetName = "未命名方案";
+                            persistActiveSettings();
+                        }
+                        persistPresetList();
+                        picker.dismiss();
+                        showModePicker();
+                    })
+                    .show());
+            delete.setTextSize(13);
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(68), dp(38));
+            row.addView(delete, deleteParams);
+        }
+    }
+
+    private void applyPreset(TimerPreset preset) {
+        segments.clear();
+        segments.addAll(copySegments(preset.segments));
+        totalDurationSeconds = preset.totalSeconds;
+        overtimeEnabled = preset.overtimeEnabled;
+        overtimeDurationSeconds = preset.overtimeDurationSeconds;
+        overtimeIntervalSeconds = preset.overtimeIntervalSeconds;
+        overtimeCountdown = preset.overtimeCountdown;
+        currentPresetName = preset.name;
+        customMode = true;
+        saveSettings();
     }
 
     private void showPlanSettings() {
@@ -919,15 +1003,40 @@ public class MainActivity extends Activity {
                 presets.clear();
             }
         }
-        if (presets.isEmpty() && preferences.contains(KEY_SEGMENTS)) {
+        if (presets.isEmpty() && preferences.contains(KEY_SEGMENTS)
+                && !preferences.contains(KEY_PRESETS)) {
             presets.add(new TimerPreset(currentPresetName, totalDurationSeconds, copySegments(segments),
                     overtimeEnabled, overtimeDurationSeconds, overtimeIntervalSeconds, overtimeCountdown));
         }
     }
 
     private void saveSettings() {
+        for (int i = presets.size() - 1; i >= 0; i--) {
+            if (presets.get(i).name.equalsIgnoreCase(currentPresetName)) presets.remove(i);
+        }
+        presets.add(new TimerPreset(currentPresetName, totalDurationSeconds, copySegments(segments),
+                overtimeEnabled, overtimeDurationSeconds, overtimeIntervalSeconds, overtimeCountdown));
+        persistActiveSettings();
+        persistPresetList();
+    }
+
+    private void persistActiveSettings() {
+        JSONArray array = encodeSegments(segments);
+        getPreferences(0).edit()
+                .putBoolean(KEY_CUSTOM_MODE, customMode)
+                .putString(KEY_PRESET_NAME, currentPresetName)
+                .putLong(KEY_TOTAL_DURATION, totalDurationSeconds)
+                .putBoolean(KEY_OVERTIME_ENABLED, overtimeEnabled)
+                .putLong(KEY_OVERTIME_DURATION, overtimeDurationSeconds)
+                .putLong(KEY_OVERTIME_INTERVAL, overtimeIntervalSeconds)
+                .putBoolean(KEY_OVERTIME_COUNTDOWN, overtimeCountdown)
+                .putString(KEY_SEGMENTS, array.toString())
+                .apply();
+    }
+
+    private JSONArray encodeSegments(List<Segment> source) {
         JSONArray array = new JSONArray();
-        for (Segment segment : segments) {
+        for (Segment segment : source) {
             JSONObject item = new JSONObject();
             try {
                 item.put("name", segment.name);
@@ -937,12 +1046,10 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             array.put(item);
         }
+        return array;
+    }
 
-        for (int i = presets.size() - 1; i >= 0; i--) {
-            if (presets.get(i).name.equalsIgnoreCase(currentPresetName)) presets.remove(i);
-        }
-        presets.add(new TimerPreset(currentPresetName, totalDurationSeconds, copySegments(segments),
-                overtimeEnabled, overtimeDurationSeconds, overtimeIntervalSeconds, overtimeCountdown));
+    private void persistPresetList() {
         JSONArray presetArray = new JSONArray();
         for (TimerPreset preset : presets) {
             JSONObject item = new JSONObject();
@@ -966,17 +1073,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             presetArray.put(item);
         }
-        getPreferences(0).edit()
-                .putBoolean(KEY_CUSTOM_MODE, customMode)
-                .putString(KEY_PRESET_NAME, currentPresetName)
-                .putString(KEY_PRESETS, presetArray.toString())
-                .putLong(KEY_TOTAL_DURATION, totalDurationSeconds)
-                .putBoolean(KEY_OVERTIME_ENABLED, overtimeEnabled)
-                .putLong(KEY_OVERTIME_DURATION, overtimeDurationSeconds)
-                .putLong(KEY_OVERTIME_INTERVAL, overtimeIntervalSeconds)
-                .putBoolean(KEY_OVERTIME_COUNTDOWN, overtimeCountdown)
-                .putString(KEY_SEGMENTS, array.toString())
-                .apply();
+        getPreferences(0).edit().putString(KEY_PRESETS, presetArray.toString()).apply();
     }
 
     private int dp(int value) {
