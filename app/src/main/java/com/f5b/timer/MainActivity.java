@@ -47,12 +47,15 @@ public class MainActivity extends Activity {
     private static final String KEY_OVERTIME_DURATION = "overtime_duration_seconds";
     private static final String KEY_OVERTIME_INTERVAL = "overtime_interval_seconds";
     private static final String KEY_OVERTIME_COUNTDOWN = "overtime_countdown";
+    private static final String KEY_PRESETS = "custom_presets";
+    private static final String KEY_PRESET_NAME = "custom_preset_name";
     private static final int INK = Color.rgb(20, 34, 48);
     private static final int MUTED = Color.rgb(101, 116, 130);
     private static final int ACCENT = Color.rgb(20, 82, 72);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<Segment> segments = new ArrayList<>();
+    private final ArrayList<TimerPreset> presets = new ArrayList<>();
     private TextView clockText;
     private TextView phaseText;
     private Button startPauseButton;
@@ -67,6 +70,7 @@ public class MainActivity extends Activity {
     private long overtimeDurationSeconds = 60L;
     private long overtimeIntervalSeconds = 5L;
     private boolean overtimeCountdown = false;
+    private String currentPresetName = "我的方案";
     private long elapsedBeforeRun = 0L;
     private long runStartedAt = 0L;
     private long lastAnnouncedSecond = -1L;
@@ -104,6 +108,28 @@ public class MainActivity extends Activity {
 
         Segment copy() {
             return new Segment(name, durationSeconds, countdown, intervalSeconds);
+        }
+    }
+
+    private static class TimerPreset {
+        String name;
+        long totalSeconds;
+        ArrayList<Segment> segments;
+        boolean overtimeEnabled;
+        long overtimeDurationSeconds;
+        long overtimeIntervalSeconds;
+        boolean overtimeCountdown;
+
+        TimerPreset(String name, long totalSeconds, ArrayList<Segment> segments,
+                    boolean overtimeEnabled, long overtimeDurationSeconds,
+                    long overtimeIntervalSeconds, boolean overtimeCountdown) {
+            this.name = name;
+            this.totalSeconds = totalSeconds;
+            this.segments = segments;
+            this.overtimeEnabled = overtimeEnabled;
+            this.overtimeDurationSeconds = overtimeDurationSeconds;
+            this.overtimeIntervalSeconds = overtimeIntervalSeconds;
+            this.overtimeCountdown = overtimeCountdown;
         }
     }
 
@@ -252,13 +278,29 @@ public class MainActivity extends Activity {
         if (running) return;
         ArrayList<Segment> draft = getPreferences(0).contains(KEY_SEGMENTS)
                 ? copySegments(segments) : new ArrayList<>();
+        Runnable[] refreshHolder = new Runnable[1];
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(18), dp(8), dp(18), dp(14));
 
+        EditText presetNameInput = addInput(content, "方案名称", currentPresetName, InputType.TYPE_CLASS_TEXT);
         EditText durationInput = addInput(content, "方案总时长（秒）",
                 String.valueOf(totalDurationSeconds), InputType.TYPE_CLASS_NUMBER);
         content.addView(formHint("先设置整场时长，例如 5 分钟填 300 秒；分段时长合计必须刚好等于总时长。"));
+
+        LinearLayout presetActions = new LinearLayout(this);
+        presetActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button loadPreset = makeButton("载入已保存方案", v -> { });
+        Button newPreset = makeButton("新建空白方案", v -> {
+            draft.clear();
+            presetNameInput.setText("");
+            refreshHolder[0].run();
+        });
+        LinearLayout.LayoutParams presetButtonParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        presetButtonParams.setMargins(dp(3), dp(4), dp(3), dp(8));
+        presetActions.addView(loadPreset, presetButtonParams);
+        presetActions.addView(newPreset, presetButtonParams);
+        content.addView(presetActions);
 
         TextView allocationSummary = new TextView(this);
         allocationSummary.setTextColor(INK);
@@ -294,11 +336,14 @@ public class MainActivity extends Activity {
         overtimeDirection.setSelection(overtimeCountdown ? 1 : 0);
         content.addView(overtimeDirection, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        loadPreset.setOnClickListener(v -> showSavedPresetPicker(presetNameInput, durationInput,
+                draft, refreshHolder[0], overtimeToggle, overtimeDurationInput,
+                overtimeIntervalInput, overtimeDirection));
+
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         content.addView(list);
 
-        Runnable[] refreshHolder = new Runnable[1];
         Button add = makeButton("＋ 添加时段", v -> {
             long target = parsePositiveOrZero(durationInput.getText().toString());
             long remaining = target - draftDuration(draft);
@@ -385,6 +430,11 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "请至少添加一个时段", Toast.LENGTH_SHORT).show();
                 return;
             }
+            String presetName = presetNameInput.getText().toString().trim();
+            if (presetName.isEmpty()) {
+                Toast.makeText(this, "请为自定义方案填写名称", Toast.LENGTH_SHORT).show();
+                return;
+            }
             long target = parsePositiveOrZero(durationInput.getText().toString());
             if (target <= 0L || target > 24L * 60L * 60L) {
                 Toast.makeText(this, "总时长须为 1–86400 秒", Toast.LENGTH_SHORT).show();
@@ -409,6 +459,7 @@ public class MainActivity extends Activity {
             segments.clear();
             segments.addAll(copySegments(draft));
             totalDurationSeconds = target;
+            currentPresetName = presetName;
             overtimeEnabled = enableOvertime;
             if (overtimeDuration > 0L) overtimeDurationSeconds = overtimeDuration;
             if (overtimeInterval > 0L) overtimeIntervalSeconds = overtimeInterval;
@@ -420,6 +471,37 @@ public class MainActivity extends Activity {
             dialog.dismiss();
         }));
         dialog.show();
+    }
+
+    private void showSavedPresetPicker(EditText nameInput, EditText durationInput,
+                                       ArrayList<Segment> draft, Runnable refresh,
+                                       CheckBox overtimeToggle, EditText overtimeDurationInput,
+                                       EditText overtimeIntervalInput, Spinner overtimeDirection) {
+        if (presets.isEmpty()) {
+            Toast.makeText(this, "还没有已保存的方案；配置后点击“保存方案”即可保存", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String[] labels = new String[presets.size()];
+        for (int i = 0; i < presets.size(); i++) {
+            TimerPreset preset = presets.get(i);
+            labels[i] = preset.name + "  ·  " + formatChineseTime(preset.totalSeconds);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("载入已保存方案")
+                .setItems(labels, (picker, which) -> {
+                    TimerPreset preset = presets.get(which);
+                    draft.clear();
+                    draft.addAll(copySegments(preset.segments));
+                    nameInput.setText(preset.name);
+                    durationInput.setText(String.valueOf(preset.totalSeconds));
+                    overtimeToggle.setChecked(preset.overtimeEnabled);
+                    overtimeDurationInput.setText(String.valueOf(preset.overtimeDurationSeconds));
+                    overtimeIntervalInput.setText(String.valueOf(preset.overtimeIntervalSeconds));
+                    overtimeDirection.setSelection(preset.overtimeCountdown ? 1 : 0);
+                    refresh.run();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void showSegmentActions(ArrayList<Segment> draft, int index, Runnable refresh, View anchor) {
@@ -630,9 +712,9 @@ public class MainActivity extends Activity {
             }
             clockText.setTextColor(Color.WHITE);
             phaseText.setText("第 " + (position.index + 1) + "/" + segments.size() + " 段 · "
-                    + segment.name + " · " + (segment.countdown ? "本段剩余 "
-                    + formatChineseTime(segment.durationSeconds - position.elapsedSeconds)
-                    : "本段已过 " + formatChineseTime(position.elapsedSeconds)));
+                    + segment.name + " · " + (segment.countdown ? "整场剩余 "
+                    + formatChineseTime(total - seconds)
+                    : "整场已用 " + formatChineseTime(seconds)));
             return;
         }
 
@@ -715,30 +797,17 @@ public class MainActivity extends Activity {
 
     private String customAnnouncement(long seconds) {
         long total = customPlanDuration();
+        if (seconds <= 0L) return null;
         if (seconds >= total) {
             if (lastAnnouncedSecond < total) return "时间到";
             return customOvertimeAnnouncement(seconds - total);
         }
-        long segmentStart = 0L;
-        for (Segment segment : segments) {
-            long localSeconds = seconds - segmentStart;
-            long segmentEnd = segmentStart + segment.durationSeconds;
-            if (seconds <= segmentEnd) {
-                if (localSeconds > 0L && localSeconds % segment.intervalSeconds == 0L) {
-                    if (segment.countdown && localSeconds == segment.durationSeconds && segmentEnd < total) {
-                        return null;
-                    }
-                    long reportValue = segment.countdown
-                            ? Math.max(0L, segment.durationSeconds - localSeconds)
-                            : seconds;
-                    return segment.intervalSeconds < 10L
-                            ? String.valueOf(reportValue) : formatChineseTime(reportValue);
-                }
-                return null;
-            }
-            segmentStart = segmentEnd;
-        }
-        return null;
+        SegmentPosition position = locateSegment(seconds);
+        Segment segment = segments.get(position.index);
+        long reportValue = segment.countdown ? total - seconds : seconds;
+        if (reportValue <= 0L || reportValue % segment.intervalSeconds != 0L) return null;
+        return segment.intervalSeconds < 10L
+                ? String.valueOf(reportValue) : formatChineseTime(reportValue);
     }
 
     private String customOvertimeAnnouncement(long overtimeElapsed) {
@@ -791,6 +860,7 @@ public class MainActivity extends Activity {
     private void loadSettings() {
         android.content.SharedPreferences preferences = getPreferences(0);
         customMode = preferences.getBoolean(KEY_CUSTOM_MODE, false);
+        currentPresetName = preferences.getString(KEY_PRESET_NAME, "我的方案");
         overtimeEnabled = preferences.getBoolean(KEY_OVERTIME_ENABLED, false);
         overtimeDurationSeconds = preferences.getLong(KEY_OVERTIME_DURATION, 60L);
         overtimeIntervalSeconds = preferences.getLong(KEY_OVERTIME_INTERVAL, 5L);
@@ -817,6 +887,42 @@ public class MainActivity extends Activity {
         long segmentTotal = draftDuration(segments);
         totalDurationSeconds = savedTotal > 0L && savedTotal == segmentTotal
                 ? savedTotal : segmentTotal;
+        String encodedPresets = preferences.getString(KEY_PRESETS, null);
+        if (encodedPresets != null) {
+            try {
+                JSONArray presetArray = new JSONArray(encodedPresets);
+                for (int i = 0; i < presetArray.length(); i++) {
+                    JSONObject presetItem = presetArray.getJSONObject(i);
+                    String name = presetItem.optString("name", "").trim();
+                    long total = presetItem.optLong("total", 0L);
+                    JSONArray segmentArray = presetItem.optJSONArray("segments");
+                    if (name.isEmpty() || total <= 0L || segmentArray == null) continue;
+                    ArrayList<Segment> presetSegments = new ArrayList<>();
+                    for (int j = 0; j < segmentArray.length(); j++) {
+                        JSONObject item = segmentArray.getJSONObject(j);
+                        long duration = item.optLong("duration", 0L);
+                        long interval = item.optLong("interval", 0L);
+                        if (duration > 0L && interval > 0L) {
+                            presetSegments.add(new Segment(item.optString("name", "阶段" + (j + 1)),
+                                    duration, item.optBoolean("countdown", false), interval));
+                        }
+                    }
+                    if (!presetSegments.isEmpty() && draftDuration(presetSegments) == total) {
+                        presets.add(new TimerPreset(name, total, presetSegments,
+                                presetItem.optBoolean("overtimeEnabled", false),
+                                Math.max(1L, presetItem.optLong("overtimeDuration", 60L)),
+                                Math.max(1L, presetItem.optLong("overtimeInterval", 5L)),
+                                presetItem.optBoolean("overtimeCountdown", false)));
+                    }
+                }
+            } catch (Exception ignored) {
+                presets.clear();
+            }
+        }
+        if (presets.isEmpty() && preferences.contains(KEY_SEGMENTS)) {
+            presets.add(new TimerPreset(currentPresetName, totalDurationSeconds, copySegments(segments),
+                    overtimeEnabled, overtimeDurationSeconds, overtimeIntervalSeconds, overtimeCountdown));
+        }
     }
 
     private void saveSettings() {
@@ -831,8 +937,39 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             array.put(item);
         }
+
+        for (int i = presets.size() - 1; i >= 0; i--) {
+            if (presets.get(i).name.equalsIgnoreCase(currentPresetName)) presets.remove(i);
+        }
+        presets.add(new TimerPreset(currentPresetName, totalDurationSeconds, copySegments(segments),
+                overtimeEnabled, overtimeDurationSeconds, overtimeIntervalSeconds, overtimeCountdown));
+        JSONArray presetArray = new JSONArray();
+        for (TimerPreset preset : presets) {
+            JSONObject item = new JSONObject();
+            try {
+                item.put("name", preset.name);
+                item.put("total", preset.totalSeconds);
+                item.put("overtimeEnabled", preset.overtimeEnabled);
+                item.put("overtimeDuration", preset.overtimeDurationSeconds);
+                item.put("overtimeInterval", preset.overtimeIntervalSeconds);
+                item.put("overtimeCountdown", preset.overtimeCountdown);
+                JSONArray presetSegments = new JSONArray();
+                for (Segment segment : preset.segments) {
+                    JSONObject segmentItem = new JSONObject();
+                    segmentItem.put("name", segment.name);
+                    segmentItem.put("duration", segment.durationSeconds);
+                    segmentItem.put("countdown", segment.countdown);
+                    segmentItem.put("interval", segment.intervalSeconds);
+                    presetSegments.put(segmentItem);
+                }
+                item.put("segments", presetSegments);
+            } catch (Exception ignored) { }
+            presetArray.put(item);
+        }
         getPreferences(0).edit()
                 .putBoolean(KEY_CUSTOM_MODE, customMode)
+                .putString(KEY_PRESET_NAME, currentPresetName)
+                .putString(KEY_PRESETS, presetArray.toString())
                 .putLong(KEY_TOTAL_DURATION, totalDurationSeconds)
                 .putBoolean(KEY_OVERTIME_ENABLED, overtimeEnabled)
                 .putLong(KEY_OVERTIME_DURATION, overtimeDurationSeconds)
