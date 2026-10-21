@@ -111,6 +111,7 @@ public class MainActivity extends Activity {
                 int result = tts.setLanguage(Locale.SIMPLIFIED_CHINESE);
                 ttsReady = result != TextToSpeech.LANG_MISSING_DATA
                         && result != TextToSpeech.LANG_NOT_SUPPORTED;
+                if (ttsReady) tts.setSpeechRate(1.15f);
                 if (result == TextToSpeech.LANG_MISSING_DATA
                         || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                     phaseText.setText("请在系统设置中安装中文语音数据");
@@ -638,6 +639,8 @@ public class MainActivity extends Activity {
             return "4分钟";
         } else if (seconds > 240L && seconds < LANDING_START && (seconds - 240L) % 5L == 0L) {
             return (LIMIT - seconds) + "秒";
+        } else if (seconds >= LIMIT - 10L && seconds < LIMIT) {
+            return String.valueOf(LIMIT - seconds);
         } else if (seconds >= LANDING_START && seconds < LIMIT && (LIMIT - seconds) % 5L == 0L) {
             return (LIMIT - seconds) + "秒";
         } else if (seconds == LIMIT) {
@@ -663,8 +666,9 @@ public class MainActivity extends Activity {
                 if (localSeconds > 0L && localSeconds % segment.intervalSeconds == 0L) {
                     long reportValue = segment.countdown
                             ? Math.max(0L, segment.durationSeconds - localSeconds)
-                            : localSeconds;
-                    return formatChineseTime(reportValue);
+                            : seconds;
+                    return segment.intervalSeconds < 10L
+                            ? String.valueOf(reportValue) : formatChineseTime(reportValue);
                 }
                 return null;
             }
