@@ -10,7 +10,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.speech.tts.TextToSpeech;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -39,6 +41,7 @@ public class MainActivity extends Activity {
     private static final String PREFS = "f5b_timer_settings";
     private static final String KEY_CUSTOM_MODE = "custom_mode";
     private static final String KEY_SEGMENTS = "segments";
+    private static final String KEY_TOTAL_DURATION = "total_duration_seconds";
     private static final int INK = Color.rgb(20, 34, 48);
     private static final int MUTED = Color.rgb(101, 116, 130);
     private static final int ACCENT = Color.rgb(20, 82, 72);
@@ -54,6 +57,7 @@ public class MainActivity extends Activity {
     private boolean ttsReady = false;
     private boolean customMode = false;
     private boolean running = false;
+    private long totalDurationSeconds = 300L;
     private long elapsedBeforeRun = 0L;
     private long runStartedAt = 0L;
     private long lastAnnouncedSecond = -1L;
@@ -70,6 +74,7 @@ public class MainActivity extends Activity {
                 elapsedBeforeRun = customPlanDuration() * SECOND;
                 running = false;
                 startPauseButton.setText("开始");
+                updateModeControls();
             }
             if (running) handler.postDelayed(this, 100L);
         }
@@ -235,13 +240,42 @@ public class MainActivity extends Activity {
 
     private void showPlanSettings() {
         if (running) return;
-        ArrayList<Segment> draft = copySegments(segments);
+        ArrayList<Segment> draft = getPreferences(0).contains(KEY_SEGMENTS)
+                ? copySegments(segments) : new ArrayList<>();
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(8), dp(18), dp(14));
+
+        EditText durationInput = addInput(content, "方案总时长（秒）",
+                String.valueOf(totalDurationSeconds), InputType.TYPE_CLASS_NUMBER);
+        content.addView(formHint("先设置整场时长，例如 5 分钟填 300 秒；分段时长合计必须刚好等于总时长。"));
+
+        TextView allocationSummary = new TextView(this);
+        allocationSummary.setTextColor(INK);
+        allocationSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        allocationSummary.setTextSize(14);
+        allocationSummary.setGravity(Gravity.CENTER_VERTICAL);
+        allocationSummary.setPadding(dp(2), dp(8), dp(2), dp(10));
+        content.addView(allocationSummary);
+
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(18), dp(8), dp(18), dp(14));
+        content.addView(list);
+
+        Runnable[] refreshHolder = new Runnable[1];
+        Button add = makeButton("＋ 添加时段", v -> {
+            long target = parsePositiveOrZero(durationInput.getText().toString());
+            long remaining = target - draftDuration(draft);
+            if (remaining <= 0L) return;
+            Segment initial = new Segment("阶段" + (draft.size() + 1), Math.min(10L, remaining), false, 1L);
+            showSegmentEditor(draft, -1, refreshHolder[0], initial);
+        });
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(52));
+        addParams.topMargin = dp(4);
+        content.addView(add, addParams);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.addView(list);
+        scroll.addView(content);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("自定义分段方案")
                 .setView(scroll)
@@ -249,15 +283,25 @@ public class MainActivity extends Activity {
                 .setNegativeButton("取消", null)
                 .create();
 
-        Runnable[] refreshRef = new Runnable[1];
-        refreshRef[0] = () -> {
+        refreshHolder[0] = () -> {
             list.removeAllViews();
-            TextView hint = new TextView(this);
-            hint.setText("点选时段即可编辑。时长和报时间隔均可按秒设置。\n例如：10 秒、正计时、每 1 秒播报。");
-            hint.setTextSize(14);
-            hint.setTextColor(MUTED);
-            hint.setPadding(dp(2), dp(5), dp(2), dp(14));
-            list.addView(hint);
+            long target = parsePositiveOrZero(durationInput.getText().toString());
+            long allocated = draftDuration(draft);
+            if (target <= 0L || target > 24L * 60L * 60L) {
+                allocationSummary.setText("请输入 1–86400 秒的总时长");
+                add.setEnabled(false);
+            } else if (allocated < target) {
+                allocationSummary.setText("已分配 " + formatChineseTime(allocated) + " / "
+                        + formatChineseTime(target) + "  ·  还剩 " + formatChineseTime(target - allocated));
+                add.setEnabled(true);
+            } else if (allocated > target) {
+                allocationSummary.setText("已超出总时长 " + formatChineseTime(allocated - target)
+                        + "，请编辑或删除时段");
+                add.setEnabled(false);
+            } else {
+                allocationSummary.setText("分段已覆盖全部总时长  ·  " + draft.size() + " 个时段");
+                add.setEnabled(false);
+            }
             for (int index = 0; index < draft.size(); index++) {
                 final int itemIndex = index;
                 Segment segment = draft.get(index);
@@ -275,46 +319,52 @@ public class MainActivity extends Activity {
                 details.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
                 details.setTextSize(17);
                 details.setPadding(0, dp(3), 0, dp(2));
-                details.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshRef[0]));
+                details.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshHolder[0]));
                 row.addView(details);
                 TextView summary = new TextView(this);
                 summary.setText(segmentSummary(index, segment));
                 summary.setTextColor(MUTED);
                 summary.setTextSize(13);
                 summary.setPadding(0, 0, 0, dp(5));
-                summary.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshRef[0]));
+                summary.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshHolder[0]));
                 row.addView(summary);
-                Button more = makeButton("⋮", v -> showSegmentActions(draft, itemIndex, refreshRef[0], v));
+                Button more = makeButton("⋮", v -> showSegmentActions(draft, itemIndex, refreshHolder[0], v));
                 more.setTextSize(20);
                 more.setElevation(0);
                 LinearLayout.LayoutParams moreParams = new LinearLayout.LayoutParams(dp(48), dp(36));
                 moreParams.gravity = Gravity.RIGHT;
                 row.addView(more, moreParams);
             }
-            Button add = makeButton("＋ 添加时段", v -> {
-                Segment initial = new Segment("阶段" + (draft.size() + 1), 10L, false, 1L);
-                showSegmentEditor(draft, -1, refreshRef[0], initial);
-            });
-            LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(52));
-            addParams.topMargin = dp(4);
-            list.addView(add, addParams);
-            TextView total = new TextView(this);
-            total.setText("总时长  " + formatChineseTime(draftDuration(draft)) + "  ·  " + draft.size() + " 个时段");
-            total.setTextColor(INK);
-            total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            total.setTextSize(14);
-            total.setGravity(Gravity.CENTER);
-            total.setPadding(0, dp(14), 0, dp(2));
-            list.addView(total);
         };
-        refreshRef[0].run();
+        refreshHolder[0].run();
+        durationInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {
+                refreshHolder[0].run();
+            }
+            @Override public void afterTextChanged(Editable value) { }
+        });
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (draft.isEmpty()) {
                 Toast.makeText(this, "请至少添加一个时段", Toast.LENGTH_SHORT).show();
                 return;
             }
+            long target = parsePositiveOrZero(durationInput.getText().toString());
+            if (target <= 0L || target > 24L * 60L * 60L) {
+                Toast.makeText(this, "总时长须为 1–86400 秒", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            long allocated = draftDuration(draft);
+            if (allocated != target) {
+                long difference = Math.abs(target - allocated);
+                Toast.makeText(this, allocated < target
+                        ? "还差 " + formatChineseTime(difference) + " 未分段"
+                        : "分段超出总时长 " + formatChineseTime(difference), Toast.LENGTH_LONG).show();
+                return;
+            }
             segments.clear();
             segments.addAll(copySegments(draft));
+            totalDurationSeconds = target;
             customMode = true;
             saveSettings();
             resetTimer();
@@ -453,6 +503,7 @@ public class MainActivity extends Activity {
                 + " · 每 " + segment.intervalSeconds + " 秒报时";
     }
 
+
     private void toggleRun() {
         if (running) {
             elapsedBeforeRun = elapsedMillis();
@@ -501,18 +552,15 @@ public class MainActivity extends Activity {
         if (customMode) {
             long total = customPlanDuration();
             if (seconds >= total) {
-                clockText.setText("00:00");
+                setClock(total);
                 clockText.setTextColor(Color.WHITE);
                 root.setBackgroundColor(Color.rgb(150, 20, 28));
-                phaseText.setText("方案完成");
+                phaseText.setText("方案完成 · 总计时 " + formatChineseTime(total));
                 return;
             }
             SegmentPosition position = locateSegment(seconds);
             Segment segment = segments.get(position.index);
-            long shownSeconds = segment.countdown
-                    ? Math.max(0L, segment.durationSeconds - position.elapsedSeconds)
-                    : position.elapsedSeconds;
-            setClock(shownSeconds);
+            setClock(seconds);
             long remaining = total - seconds;
             if (remaining <= 30L) {
                 root.setBackgroundColor(Color.rgb(183, 35, 32));
@@ -523,7 +571,9 @@ public class MainActivity extends Activity {
             }
             clockText.setTextColor(Color.WHITE);
             phaseText.setText("第 " + (position.index + 1) + "/" + segments.size() + " 段 · "
-                    + segment.name + " · " + (segment.countdown ? "倒计时" : "正计时"));
+                    + segment.name + " · " + (segment.countdown ? "本段剩余 "
+                    + formatChineseTime(segment.durationSeconds - position.elapsedSeconds)
+                    : "本段已过 " + formatChineseTime(position.elapsedSeconds)));
             return;
         }
 
@@ -605,14 +655,20 @@ public class MainActivity extends Activity {
     private String customAnnouncement(long seconds) {
         long total = customPlanDuration();
         if (seconds >= total) return "时间到";
-        SegmentPosition position = locateSegment(seconds);
-        Segment segment = segments.get(position.index);
-        long localSeconds = position.elapsedSeconds;
-        if (localSeconds > 0L && localSeconds % segment.intervalSeconds == 0L) {
-            long reportValue = segment.countdown
-                    ? Math.max(0L, segment.durationSeconds - localSeconds)
-                    : localSeconds;
-            return formatChineseTime(reportValue);
+        long segmentStart = 0L;
+        for (Segment segment : segments) {
+            long localSeconds = seconds - segmentStart;
+            long segmentEnd = segmentStart + segment.durationSeconds;
+            if (seconds <= segmentEnd) {
+                if (localSeconds > 0L && localSeconds % segment.intervalSeconds == 0L) {
+                    long reportValue = segment.countdown
+                            ? Math.max(0L, segment.durationSeconds - localSeconds)
+                            : localSeconds;
+                    return formatChineseTime(reportValue);
+                }
+                return null;
+            }
+            segmentStart = segmentEnd;
         }
         return null;
     }
@@ -633,7 +689,7 @@ public class MainActivity extends Activity {
     }
 
     private long customPlanDuration() {
-        return draftDuration(segments);
+        return totalDurationSeconds;
     }
 
     private long draftDuration(List<Segment> plan) {
@@ -649,8 +705,9 @@ public class MainActivity extends Activity {
     }
 
     private void loadSettings() {
-        customMode = getPreferences(0).getBoolean(KEY_CUSTOM_MODE, false);
-        String encoded = getPreferences(0).getString(KEY_SEGMENTS, null);
+        android.content.SharedPreferences preferences = getPreferences(0);
+        customMode = preferences.getBoolean(KEY_CUSTOM_MODE, false);
+        String encoded = preferences.getString(KEY_SEGMENTS, null);
         if (encoded != null) {
             try {
                 JSONArray array = new JSONArray(encoded);
@@ -668,6 +725,10 @@ public class MainActivity extends Activity {
             }
         }
         if (segments.isEmpty()) segments.add(new Segment("阶段1", 300L, false, 30L));
+        long savedTotal = preferences.getLong(KEY_TOTAL_DURATION, -1L);
+        long segmentTotal = draftDuration(segments);
+        totalDurationSeconds = savedTotal > 0L && savedTotal == segmentTotal
+                ? savedTotal : segmentTotal;
     }
 
     private void saveSettings() {
@@ -684,6 +745,7 @@ public class MainActivity extends Activity {
         }
         getPreferences(0).edit()
                 .putBoolean(KEY_CUSTOM_MODE, customMode)
+                .putLong(KEY_TOTAL_DURATION, totalDurationSeconds)
                 .putString(KEY_SEGMENTS, array.toString())
                 .apply();
     }
