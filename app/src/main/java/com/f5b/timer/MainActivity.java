@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
@@ -42,6 +43,10 @@ public class MainActivity extends Activity {
     private static final String KEY_CUSTOM_MODE = "custom_mode";
     private static final String KEY_SEGMENTS = "segments";
     private static final String KEY_TOTAL_DURATION = "total_duration_seconds";
+    private static final String KEY_OVERTIME_ENABLED = "overtime_enabled";
+    private static final String KEY_OVERTIME_DURATION = "overtime_duration_seconds";
+    private static final String KEY_OVERTIME_INTERVAL = "overtime_interval_seconds";
+    private static final String KEY_OVERTIME_COUNTDOWN = "overtime_countdown";
     private static final int INK = Color.rgb(20, 34, 48);
     private static final int MUTED = Color.rgb(101, 116, 130);
     private static final int ACCENT = Color.rgb(20, 82, 72);
@@ -58,6 +63,10 @@ public class MainActivity extends Activity {
     private boolean customMode = false;
     private boolean running = false;
     private long totalDurationSeconds = 300L;
+    private boolean overtimeEnabled = false;
+    private long overtimeDurationSeconds = 60L;
+    private long overtimeIntervalSeconds = 5L;
+    private boolean overtimeCountdown = false;
     private long elapsedBeforeRun = 0L;
     private long runStartedAt = 0L;
     private long lastAnnouncedSecond = -1L;
@@ -67,11 +76,11 @@ public class MainActivity extends Activity {
         @Override public void run() {
             if (!running) return;
             long elapsedSeconds = Math.max(0L, elapsedMillis() / SECOND);
-            if (customMode) elapsedSeconds = Math.min(elapsedSeconds, customPlanDuration());
+            if (customMode) elapsedSeconds = Math.min(elapsedSeconds, customMaximumDuration());
             updateDisplay(elapsedSeconds);
             announceAt(elapsedSeconds);
-            if (customMode && elapsedSeconds >= customPlanDuration()) {
-                elapsedBeforeRun = customPlanDuration() * SECOND;
+            if (customMode && elapsedSeconds >= customMaximumDuration()) {
+                elapsedBeforeRun = customMaximumDuration() * SECOND;
                 running = false;
                 startPauseButton.setText("开始");
                 updateModeControls();
@@ -259,6 +268,32 @@ public class MainActivity extends Activity {
         allocationSummary.setPadding(dp(2), dp(8), dp(2), dp(10));
         content.addView(allocationSummary);
 
+        CheckBox overtimeToggle = new CheckBox(this);
+        overtimeToggle.setText("总时长结束后继续超时计时");
+        overtimeToggle.setTextColor(INK);
+        overtimeToggle.setTextSize(15);
+        overtimeToggle.setChecked(overtimeEnabled);
+        overtimeToggle.setPadding(0, dp(4), 0, dp(2));
+        content.addView(overtimeToggle);
+        content.addView(formHint("超时独立于分段方案运行，不计入上方分段总时长。"));
+        EditText overtimeDurationInput = addInput(content, "最长超时时长（秒）",
+                String.valueOf(overtimeDurationSeconds), InputType.TYPE_CLASS_NUMBER);
+        EditText overtimeIntervalInput = addInput(content, "超时报时间隔（秒）",
+                String.valueOf(overtimeIntervalSeconds), InputType.TYPE_CLASS_NUMBER);
+        TextView overtimeDirectionLabel = new TextView(this);
+        overtimeDirectionLabel.setText("超时计时方向");
+        overtimeDirectionLabel.setTextSize(13);
+        overtimeDirectionLabel.setTextColor(MUTED);
+        overtimeDirectionLabel.setPadding(dp(2), dp(8), 0, 0);
+        content.addView(overtimeDirectionLabel);
+        Spinner overtimeDirection = new Spinner(this);
+        ArrayAdapter<String> overtimeDirectionAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new String[]{"正计时（从超时 1 秒开始）", "倒计时（从最长时长倒数）"});
+        overtimeDirectionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        overtimeDirection.setAdapter(overtimeDirectionAdapter);
+        overtimeDirection.setSelection(overtimeCountdown ? 1 : 0);
+        content.addView(overtimeDirection, new LinearLayout.LayoutParams(-1, dp(48)));
+
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         content.addView(list);
@@ -363,9 +398,21 @@ public class MainActivity extends Activity {
                         : "分段超出总时长 " + formatChineseTime(difference), Toast.LENGTH_LONG).show();
                 return;
             }
+            boolean enableOvertime = overtimeToggle.isChecked();
+            long overtimeDuration = parsePositiveOrZero(overtimeDurationInput.getText().toString());
+            long overtimeInterval = parsePositiveOrZero(overtimeIntervalInput.getText().toString());
+            if (enableOvertime && (overtimeDuration <= 0L || overtimeDuration > 24L * 60L * 60L
+                    || overtimeInterval <= 0L || overtimeInterval > 24L * 60L * 60L)) {
+                Toast.makeText(this, "超时时长和报时间隔须为 1–86400 秒", Toast.LENGTH_LONG).show();
+                return;
+            }
             segments.clear();
             segments.addAll(copySegments(draft));
             totalDurationSeconds = target;
+            overtimeEnabled = enableOvertime;
+            if (overtimeDuration > 0L) overtimeDurationSeconds = overtimeDuration;
+            if (overtimeInterval > 0L) overtimeIntervalSeconds = overtimeInterval;
+            overtimeCountdown = overtimeDirection.getSelectedItemPosition() == 1;
             customMode = true;
             saveSettings();
             resetTimer();
@@ -514,7 +561,7 @@ public class MainActivity extends Activity {
             updateDisplay(elapsedBeforeRun / SECOND);
             updateModeControls();
         } else {
-            if (customMode && elapsedBeforeRun >= customPlanDuration() * SECOND) {
+            if (customMode && elapsedBeforeRun >= customMaximumDuration() * SECOND) {
                 elapsedBeforeRun = 0L;
                 resetSpeechState();
             }
@@ -553,10 +600,21 @@ public class MainActivity extends Activity {
         if (customMode) {
             long total = customPlanDuration();
             if (seconds >= total) {
-                setClock(total);
-                clockText.setTextColor(Color.WHITE);
+                long overtimeElapsed = Math.min(Math.max(0L, seconds - total), overtimeDurationSeconds);
+                long displaySeconds = total + (overtimeEnabled ? overtimeElapsed : 0L);
+                setClock(displaySeconds);
                 root.setBackgroundColor(Color.rgb(150, 20, 28));
-                phaseText.setText("方案完成 · 总计时 " + formatChineseTime(total));
+                clockText.setTextColor(overtimeEnabled && displaySeconds % 2L != 0L ? Color.YELLOW : Color.WHITE);
+                if (!overtimeEnabled) {
+                    phaseText.setText("方案完成 · 总计时 " + formatChineseTime(total));
+                } else if (overtimeElapsed >= overtimeDurationSeconds) {
+                    phaseText.setText("超时计时结束 · 已超时 " + formatOvertime(overtimeElapsed));
+                } else {
+                    long overtimeValue = overtimeCountdown
+                            ? overtimeDurationSeconds - overtimeElapsed : overtimeElapsed;
+                    phaseText.setText((overtimeCountdown ? "超时倒计时 · 剩余 " : "超时正计时 · 加时 ")
+                            + formatOvertime(overtimeValue));
+                }
                 return;
             }
             SegmentPosition position = locateSegment(seconds);
@@ -657,13 +715,19 @@ public class MainActivity extends Activity {
 
     private String customAnnouncement(long seconds) {
         long total = customPlanDuration();
-        if (seconds >= total) return "时间到";
+        if (seconds >= total) {
+            if (lastAnnouncedSecond < total) return "时间到";
+            return customOvertimeAnnouncement(seconds - total);
+        }
         long segmentStart = 0L;
         for (Segment segment : segments) {
             long localSeconds = seconds - segmentStart;
             long segmentEnd = segmentStart + segment.durationSeconds;
             if (seconds <= segmentEnd) {
                 if (localSeconds > 0L && localSeconds % segment.intervalSeconds == 0L) {
+                    if (segment.countdown && localSeconds == segment.durationSeconds && segmentEnd < total) {
+                        return null;
+                    }
                     long reportValue = segment.countdown
                             ? Math.max(0L, segment.durationSeconds - localSeconds)
                             : seconds;
@@ -675,6 +739,18 @@ public class MainActivity extends Activity {
             segmentStart = segmentEnd;
         }
         return null;
+    }
+
+    private String customOvertimeAnnouncement(long overtimeElapsed) {
+        if (!overtimeEnabled || overtimeElapsed <= 0L || overtimeElapsed > overtimeDurationSeconds) return null;
+        if (overtimeElapsed == overtimeDurationSeconds && overtimeCountdown) return "0";
+        if (overtimeElapsed % overtimeIntervalSeconds != 0L) {
+            return overtimeElapsed == overtimeDurationSeconds ? "超时结束" : null;
+        }
+        long reportValue = overtimeCountdown
+                ? overtimeDurationSeconds - overtimeElapsed : overtimeElapsed;
+        return overtimeIntervalSeconds < 10L
+                ? String.valueOf(reportValue) : formatChineseTime(reportValue);
     }
 
     private String formatChineseTime(long seconds) {
@@ -696,6 +772,10 @@ public class MainActivity extends Activity {
         return totalDurationSeconds;
     }
 
+    private long customMaximumDuration() {
+        return customPlanDuration() + (overtimeEnabled ? overtimeDurationSeconds : 0L);
+    }
+
     private long draftDuration(List<Segment> plan) {
         long total = 0L;
         for (Segment segment : plan) total += segment.durationSeconds;
@@ -711,6 +791,10 @@ public class MainActivity extends Activity {
     private void loadSettings() {
         android.content.SharedPreferences preferences = getPreferences(0);
         customMode = preferences.getBoolean(KEY_CUSTOM_MODE, false);
+        overtimeEnabled = preferences.getBoolean(KEY_OVERTIME_ENABLED, false);
+        overtimeDurationSeconds = preferences.getLong(KEY_OVERTIME_DURATION, 60L);
+        overtimeIntervalSeconds = preferences.getLong(KEY_OVERTIME_INTERVAL, 5L);
+        overtimeCountdown = preferences.getBoolean(KEY_OVERTIME_COUNTDOWN, false);
         String encoded = preferences.getString(KEY_SEGMENTS, null);
         if (encoded != null) {
             try {
@@ -750,6 +834,10 @@ public class MainActivity extends Activity {
         getPreferences(0).edit()
                 .putBoolean(KEY_CUSTOM_MODE, customMode)
                 .putLong(KEY_TOTAL_DURATION, totalDurationSeconds)
+                .putBoolean(KEY_OVERTIME_ENABLED, overtimeEnabled)
+                .putLong(KEY_OVERTIME_DURATION, overtimeDurationSeconds)
+                .putLong(KEY_OVERTIME_INTERVAL, overtimeIntervalSeconds)
+                .putBoolean(KEY_OVERTIME_COUNTDOWN, overtimeCountdown)
                 .putString(KEY_SEGMENTS, array.toString())
                 .apply();
     }
