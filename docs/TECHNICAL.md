@@ -1,6 +1,6 @@
 # F5B A 科目计时器技术说明
 
-版本：1.1  
+版本：1.2
 应用 ID：`com.f5b.timer`  
 最低 Android 版本：Android 6.0（API 23）  
 构建工具：Android Gradle Plugin 8.7.3、Gradle 8.9、JDK 17
@@ -16,7 +16,7 @@
 
 ## 2. 自定义分段行为
 
-每段时长使用分钟和秒输入，范围为 1 秒至 24 小时；报时间隔必须大于 0。列表支持添加、编辑、删除和上移/下移。方案总时长等于所有分段时长之和，保存配置后计时重置。
+每段时长在单个输入框中直接按秒输入，范围为 1 秒至 24 小时。例如 10 秒时长填 `10`，不需要换算成分钟和秒。报时间隔也按秒输入且必须大于 0。列表支持添加、编辑、删除和上移/下移。方案总时长等于所有分段时长之和，保存配置后计时重置。
 
 - 正计时段从该段 `00:00` 开始显示；播报值是该段已过时间。
 - 倒计时段从该段设定时长开始显示；播报值是该段剩余时间。
@@ -61,6 +61,6 @@ Android [`TextToSpeech.speak()`](https://developer.android.com/reference/android
 .\gradlew.bat assembleDebug
 ```
 
-需安装 JDK 17 和 Android SDK Platform 35。构建结果位于 `app/build/outputs/apk/debug/app-debug.apk`；仓库交付目录包含已编译的 `release/F5B-A-Timer-v1.1.apk`。该安装包使用 Android 默认 debug 签名，可直接侧载和分享；它不是用于 Google Play 发布的 release 签名包。
+需安装 JDK 17 和 Android SDK Platform 35。构建结果位于 `app/build/outputs/apk/debug/app-debug.apk`；仓库交付目录包含已编译的 `release/F5B-A-Timer-v1.2.apk`。该安装包使用 Android 默认 debug 签名，可直接侧载和分享；它不是用于 Google Play 发布的 release 签名包。
 
 应用不请求网络、定位、存储等运行时权限。中文语音依赖手机系统 TTS 引擎及其中文语音数据。

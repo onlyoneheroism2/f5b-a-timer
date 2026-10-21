@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,6 +18,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -37,6 +39,9 @@ public class MainActivity extends Activity {
     private static final String PREFS = "f5b_timer_settings";
     private static final String KEY_CUSTOM_MODE = "custom_mode";
     private static final String KEY_SEGMENTS = "segments";
+    private static final int INK = Color.rgb(20, 34, 48);
+    private static final int MUTED = Color.rgb(101, 116, 130);
+    private static final int ACCENT = Color.rgb(20, 82, 72);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<Segment> segments = new ArrayList<>();
@@ -115,13 +120,22 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setPadding(dp(20), dp(20), dp(20), dp(20));
+        root.setPadding(dp(22), dp(24), dp(22), dp(20));
         root.setBackgroundColor(Color.rgb(20, 110, 80));
 
+        TextView eyebrow = new TextView(this);
+        eyebrow.setText("FLIGHT TIMER  ·  F5B A");
+        eyebrow.setTextColor(Color.rgb(220, 239, 230));
+        eyebrow.setTextSize(12);
+        eyebrow.setLetterSpacing(0.12f);
+        eyebrow.setGravity(Gravity.CENTER);
+        root.addView(eyebrow, new LinearLayout.LayoutParams(-1, dp(24)));
+
         TextView title = new TextView(this);
-        title.setText("F5B  A科目计时器");
+        title.setText("A 科目计时器");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(23);
+        title.setTextSize(25);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(-1, dp(48)));
 
@@ -129,8 +143,8 @@ public class MainActivity extends Activity {
         planControls.setGravity(Gravity.CENTER);
         modeButton = makeButton("模式：F5B竞赛", v -> showModePicker());
         settingsButton = makeButton("方案设置", v -> showPlanSettings());
-        LinearLayout.LayoutParams planButtonParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        planButtonParams.setMargins(dp(4), dp(3), dp(4), dp(3));
+        LinearLayout.LayoutParams planButtonParams = new LinearLayout.LayoutParams(0, dp(50), 1f);
+        planButtonParams.setMargins(dp(4), dp(8), dp(4), dp(8));
         planControls.addView(modeButton, planButtonParams);
         planControls.addView(settingsButton, planButtonParams);
         root.addView(planControls, new LinearLayout.LayoutParams(-1, dp(60)));
@@ -138,24 +152,36 @@ public class MainActivity extends Activity {
         clockText = new TextView(this);
         clockText.setText("00:00");
         clockText.setTextColor(Color.WHITE);
-        clockText.setTextSize(88);
+        clockText.setTextSize(82);
         clockText.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         clockText.setGravity(Gravity.CENTER);
-        root.addView(clockText, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        LinearLayout clockPanel = new LinearLayout(this);
+        clockPanel.setOrientation(LinearLayout.VERTICAL);
+        clockPanel.setGravity(Gravity.CENTER);
+        clockPanel.setBackground(rounded(Color.rgb(18, 42, 45), dp(28)));
+        clockPanel.setElevation(dp(8));
+        LinearLayout.LayoutParams clockPanelParams = new LinearLayout.LayoutParams(-1, 0, 1f);
+        clockPanelParams.setMargins(0, dp(12), 0, dp(14));
+        clockPanel.addView(clockText, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         phaseText = new TextView(this);
         phaseText.setTextColor(Color.WHITE);
-        phaseText.setTextSize(21);
+        phaseText.setTextColor(Color.rgb(218, 235, 227));
+        phaseText.setTextSize(16);
+        phaseText.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         phaseText.setGravity(Gravity.CENTER);
-        root.addView(phaseText, new LinearLayout.LayoutParams(-1, dp(72)));
+        phaseText.setPadding(dp(12), 0, dp(12), dp(16));
+        clockPanel.addView(phaseText, new LinearLayout.LayoutParams(-1, dp(56)));
+        root.addView(clockPanel, clockPanelParams);
 
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER);
         controls.setOrientation(LinearLayout.HORIZONTAL);
         startPauseButton = makeButton("开始", v -> toggleRun());
         Button reset = makeButton("重置", v -> resetTimer());
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(0, dp(64), 1f);
-        buttonParams.setMargins(dp(6), dp(10), dp(6), dp(8));
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(0, dp(60), 1f);
+        buttonParams.setMargins(dp(6), dp(8), dp(6), dp(4));
         controls.addView(startPauseButton, buttonParams);
         controls.addView(reset, buttonParams);
         root.addView(controls, new LinearLayout.LayoutParams(-1, dp(88)));
@@ -166,9 +192,21 @@ public class MainActivity extends Activity {
     private Button makeButton(String label, View.OnClickListener listener) {
         Button button = new Button(this);
         button.setText(label);
-        button.setTextSize(18);
+        button.setTextSize(15);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setTextColor(Color.WHITE);
+        button.setAllCaps(false);
+        button.setBackground(rounded(ACCENT, dp(16)));
+        button.setElevation(dp(2));
         button.setOnClickListener(listener);
         return button;
+    }
+
+    private GradientDrawable rounded(int color, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        return drawable;
     }
 
     private void updateModeControls() {
@@ -200,7 +238,7 @@ public class MainActivity extends Activity {
         ArrayList<Segment> draft = copySegments(segments);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(18), dp(8), dp(18), dp(8));
+        list.setPadding(dp(18), dp(8), dp(18), dp(14));
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(list);
@@ -215,59 +253,58 @@ public class MainActivity extends Activity {
         refreshRef[0] = () -> {
             list.removeAllViews();
             TextView hint = new TextView(this);
-            hint.setText("每段分别设置时长、正/倒计时和报时间隔。间隔设为 1 秒即逐秒报时。");
+            hint.setText("点选时段即可编辑。时长和报时间隔均可按秒设置。\n例如：10 秒、正计时、每 1 秒播报。");
             hint.setTextSize(14);
-            hint.setPadding(0, dp(4), 0, dp(12));
+            hint.setTextColor(MUTED);
+            hint.setPadding(dp(2), dp(5), dp(2), dp(14));
             list.addView(hint);
             for (int index = 0; index < draft.size(); index++) {
                 final int itemIndex = index;
                 Segment segment = draft.get(index);
                 LinearLayout row = new LinearLayout(this);
                 row.setOrientation(LinearLayout.VERTICAL);
-                row.setPadding(0, dp(8), 0, dp(8));
+                row.setPadding(dp(14), dp(10), dp(14), dp(8));
+                row.setBackground(rounded(Color.WHITE, dp(18)));
+                row.setElevation(dp(2));
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.bottomMargin = dp(10);
+                list.addView(row, rowParams);
                 TextView details = new TextView(this);
-                details.setText(segmentSummary(index, segment));
-                details.setTextSize(16);
+                details.setText((index + 1) + "  " + segment.name);
+                details.setTextColor(INK);
+                details.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                details.setTextSize(17);
+                details.setPadding(0, dp(3), 0, dp(2));
+                details.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshRef[0]));
                 row.addView(details);
-                LinearLayout actions = new LinearLayout(this);
-                Button edit = makeButton("编辑", v -> showSegmentEditor(draft, itemIndex, refreshRef[0]));
-                Button delete = makeButton("删除", v -> {
-                    draft.remove(itemIndex);
-                    refreshRef[0].run();
-                });
-                actions.addView(edit, new LinearLayout.LayoutParams(0, dp(44), 1f));
-                actions.addView(delete, new LinearLayout.LayoutParams(0, dp(44), 1f));
-                row.addView(actions);
-                LinearLayout orderActions = new LinearLayout(this);
-                Button moveUp = makeButton("上移", v -> {
-                    Collections.swap(draft, itemIndex, itemIndex - 1);
-                    refreshRef[0].run();
-                });
-                moveUp.setEnabled(itemIndex > 0);
-                Button moveDown = makeButton("下移", v -> {
-                    Collections.swap(draft, itemIndex, itemIndex + 1);
-                    refreshRef[0].run();
-                });
-                moveDown.setEnabled(itemIndex < draft.size() - 1);
-                orderActions.addView(moveUp, new LinearLayout.LayoutParams(0, dp(40), 1f));
-                orderActions.addView(moveDown, new LinearLayout.LayoutParams(0, dp(40), 1f));
-                row.addView(orderActions);
-                list.addView(row);
-                View divider = new View(this);
-                divider.setBackgroundColor(Color.LTGRAY);
-                list.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
+                TextView summary = new TextView(this);
+                summary.setText(segmentSummary(index, segment));
+                summary.setTextColor(MUTED);
+                summary.setTextSize(13);
+                summary.setPadding(0, 0, 0, dp(5));
+                summary.setOnClickListener(v -> showSegmentEditor(draft, itemIndex, refreshRef[0]));
+                row.addView(summary);
+                Button more = makeButton("⋮", v -> showSegmentActions(draft, itemIndex, refreshRef[0], v));
+                more.setTextSize(20);
+                more.setElevation(0);
+                LinearLayout.LayoutParams moreParams = new LinearLayout.LayoutParams(dp(48), dp(36));
+                moreParams.gravity = Gravity.RIGHT;
+                row.addView(more, moreParams);
             }
             Button add = makeButton("＋ 添加时段", v -> {
-                Segment initial = new Segment("阶段" + (draft.size() + 1), 60L, false, 10L);
+                Segment initial = new Segment("阶段" + (draft.size() + 1), 10L, false, 1L);
                 showSegmentEditor(draft, -1, refreshRef[0], initial);
             });
-            LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(48));
-            addParams.topMargin = dp(10);
+            LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(52));
+            addParams.topMargin = dp(4);
             list.addView(add, addParams);
             TextView total = new TextView(this);
-            total.setText("方案总时长：" + formatChineseTime(draftDuration(draft)));
-            total.setTextSize(16);
-            total.setPadding(0, dp(10), 0, 0);
+            total.setText("总时长  " + formatChineseTime(draftDuration(draft)) + "  ·  " + draft.size() + " 个时段");
+            total.setTextColor(INK);
+            total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            total.setTextSize(14);
+            total.setGravity(Gravity.CENTER);
+            total.setPadding(0, dp(14), 0, dp(2));
             list.addView(total);
         };
         refreshRef[0].run();
@@ -287,6 +324,34 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    private void showSegmentActions(ArrayList<Segment> draft, int index, Runnable refresh, View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("编辑").setOnMenuItemClickListener(item -> {
+            showSegmentEditor(draft, index, refresh);
+            return true;
+        });
+        android.view.MenuItem up = menu.getMenu().add("上移");
+        up.setEnabled(index > 0);
+        up.setOnMenuItemClickListener(item -> {
+            Collections.swap(draft, index, index - 1);
+            refresh.run();
+            return true;
+        });
+        android.view.MenuItem down = menu.getMenu().add("下移");
+        down.setEnabled(index < draft.size() - 1);
+        down.setOnMenuItemClickListener(item -> {
+            Collections.swap(draft, index, index + 1);
+            refresh.run();
+            return true;
+        });
+        menu.getMenu().add("删除").setOnMenuItemClickListener(item -> {
+            draft.remove(index);
+            refresh.run();
+            return true;
+        });
+        menu.show();
+    }
+
     private void showSegmentEditor(ArrayList<Segment> draft, int index, Runnable refresh) {
         Segment segment = draft.get(index).copy();
         showSegmentEditor(draft, index, refresh, segment);
@@ -295,18 +360,17 @@ public class MainActivity extends Activity {
     private void showSegmentEditor(ArrayList<Segment> draft, int index, Runnable refresh, Segment initial) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(22), dp(6), dp(22), dp(4));
+        form.setPadding(dp(22), dp(8), dp(22), dp(8));
 
-        EditText nameInput = addInput(form, "阶段名称", initial.name, InputType.TYPE_CLASS_TEXT);
-        LinearLayout durationRow = new LinearLayout(this);
-        durationRow.setOrientation(LinearLayout.HORIZONTAL);
-        EditText minutesInput = addInput(durationRow, "分钟", String.valueOf(initial.durationSeconds / 60L), InputType.TYPE_CLASS_NUMBER);
-        EditText secondsInput = addInput(durationRow, "秒（0–59）", String.valueOf(initial.durationSeconds % 60L), InputType.TYPE_CLASS_NUMBER);
-        form.addView(durationRow);
+        EditText nameInput = addInput(form, "时段名称", initial.name, InputType.TYPE_CLASS_TEXT);
+        EditText durationInput = addInput(form, "时长（秒）", String.valueOf(initial.durationSeconds), InputType.TYPE_CLASS_NUMBER);
+        form.addView(formHint("直接输入秒数，例如 10 秒就填 10；最长 24 小时。"));
 
         TextView directionLabel = new TextView(this);
         directionLabel.setText("计时方向");
         directionLabel.setTextSize(14);
+        directionLabel.setTextColor(MUTED);
+        directionLabel.setPadding(dp(2), dp(8), 0, dp(2));
         form.addView(directionLabel);
         Spinner direction = new Spinner(this);
         ArrayAdapter<String> directionAdapter = new ArrayAdapter<>(this,
@@ -316,7 +380,8 @@ public class MainActivity extends Activity {
         direction.setSelection(initial.countdown ? 1 : 0);
         form.addView(direction, new LinearLayout.LayoutParams(-1, dp(48)));
 
-        EditText intervalInput = addInput(form, "报时间隔（秒；1 = 逐秒）", String.valueOf(initial.intervalSeconds), InputType.TYPE_CLASS_NUMBER);
+        EditText intervalInput = addInput(form, "报时间隔（秒）", String.valueOf(initial.intervalSeconds), InputType.TYPE_CLASS_NUMBER);
+        form.addView(formHint("例如每 5 秒播报一次填 5；逐秒播报填 1。"));
 
         AlertDialog editor = new AlertDialog.Builder(this)
                 .setTitle(index >= 0 ? "编辑时段" : "添加时段")
@@ -325,16 +390,10 @@ public class MainActivity extends Activity {
                 .setNegativeButton("取消", null)
                 .create();
         editor.setOnShowListener(ignored -> editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            long minutes = parsePositiveOrZero(minutesInput.getText().toString());
-            long seconds = parsePositiveOrZero(secondsInput.getText().toString());
+            long duration = parsePositiveOrZero(durationInput.getText().toString());
             long interval = parsePositiveOrZero(intervalInput.getText().toString());
-            if (minutes < 0L || minutes > 1_440L || seconds < 0L || seconds > 59L || interval <= 0L) {
-                Toast.makeText(this, "时长须大于 0，秒数为 0–59，报时间隔至少 1 秒", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            long duration = minutes * 60L + seconds;
-            if (duration <= 0L || duration > 24L * 60L * 60L) {
-                Toast.makeText(this, "单段时长须在 1 秒到 24 小时之间", Toast.LENGTH_SHORT).show();
+            if (duration <= 0L || duration > 24L * 60L * 60L || interval <= 0L) {
+                Toast.makeText(this, "时长须为 1–86400 秒，报时间隔至少 1 秒", Toast.LENGTH_SHORT).show();
                 return;
             }
             String name = nameInput.getText().toString().trim();
@@ -349,13 +408,35 @@ public class MainActivity extends Activity {
     }
 
     private EditText addInput(LinearLayout parent, String hint, String value, int inputType) {
+        TextView label = new TextView(this);
+        label.setText(hint);
+        label.setTextSize(13);
+        label.setTextColor(MUTED);
+        label.setPadding(dp(2), dp(8), 0, 0);
+        parent.addView(label);
         EditText input = new EditText(this);
-        input.setHint(hint);
+        input.setHint("请输入" + hint);
         input.setSingleLine(true);
         input.setInputType(inputType);
         input.setText(value);
-        parent.addView(input, new LinearLayout.LayoutParams(-1, dp(52)));
+        input.setTextSize(16);
+        input.setTextColor(INK);
+        input.setPadding(dp(14), 0, dp(14), 0);
+        input.setBackground(rounded(Color.rgb(242, 245, 247), dp(12)));
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(-1, dp(48));
+        inputParams.topMargin = dp(4);
+        inputParams.bottomMargin = dp(4);
+        parent.addView(input, inputParams);
         return input;
+    }
+
+    private TextView formHint(String text) {
+        TextView hint = new TextView(this);
+        hint.setText(text);
+        hint.setTextSize(12);
+        hint.setTextColor(MUTED);
+        hint.setPadding(dp(2), 0, 0, dp(4));
+        return hint;
     }
 
     private long parsePositiveOrZero(String value) {
@@ -367,7 +448,7 @@ public class MainActivity extends Activity {
     }
 
     private String segmentSummary(int index, Segment segment) {
-        return (index + 1) + ". " + segment.name + " · " + formatChineseTime(segment.durationSeconds)
+        return formatChineseTime(segment.durationSeconds)
                 + " · " + (segment.countdown ? "倒计时" : "正计时")
                 + " · 每 " + segment.intervalSeconds + " 秒报时";
     }
